@@ -94,9 +94,9 @@ def fetch_url_metadata(url):
                                  re.search(r'content=["\']([^"\']+)["\']\s+itemprop=["\']duration["\']', html_content, re.IGNORECASE)
                 if duration_match:
                     iso_dur = duration_match.group(1).strip()
-                    hr_match = re.search(r'(\d+)H', iso_dur)
-                    min_match = re.search(r'(\d+)M', iso_dur)
-                    sec_match = re.search(r'(\d+)S', iso_dur)
+                    hr_match = re.search(r'(\d+)H', iso_dur, re.IGNORECASE)
+                    min_match = re.search(r'(\d+)M', iso_dur, re.IGNORECASE)
+                    sec_match = re.search(r'(\d+)S', iso_dur, re.IGNORECASE)
                     
                     hours = int(hr_match.group(1)) if hr_match else 0
                     minutes = int(min_match.group(1)) if min_match else 0
@@ -107,10 +107,13 @@ def fetch_url_metadata(url):
                     else:
                         metadata['duration'] = f"{minutes}:{seconds:02d}"
                 else:
-                    len_match = re.search(r'["\']lengthSeconds["\']\s*:\s*["\'](\d+)["\']', html_content)
+                    len_match = re.search(r'["\']lengthSeconds["\']\s*:\s*["\']?(\d+)["\']?', html_content) or \
+                                re.search(r'["\']approxDurationMs["\']\s*:\s*["\']?(\d+)["\']?', html_content)
                     if len_match:
                         try:
                             total_secs = int(len_match.group(1))
+                            if total_secs > 100000:
+                                total_secs = round(total_secs / 1000)
                             hours = total_secs // 3600
                             minutes = (total_secs % 3600) // 60
                             seconds = total_secs % 60
