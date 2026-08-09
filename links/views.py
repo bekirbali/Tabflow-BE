@@ -35,6 +35,55 @@ def fetch_url_metadata(url):
         yt_match = re.search(r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})', url)
         if yt_match:
             video_id = yt_match.group(1)
+            
+            # Try using YouTube Data API if key is available
+            import os
+            import json
+            youtube_api_key = os.getenv('YOUTUBE_API_KEY')
+            if youtube_api_key and youtube_api_key != 'YOUR_YOUTUBE_API_KEY':
+                try:
+                    api_url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id={video_id}&key={youtube_api_key}"
+                    api_req = urllib.request.Request(
+                        api_url,
+                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                    )
+                    with urllib.request.urlopen(api_req, timeout=3) as api_response:
+                        api_data = json.loads(api_response.read().decode('utf-8'))
+                        if api_data.get('items'):
+                            item = api_data['items'][0]
+                            snippet = item.get('snippet', {})
+                            content_details = item.get('contentDetails', {})
+                            
+                            title = snippet.get('title', title)
+                            source_name = snippet.get('channelTitle', source_name)
+                            metadata['description'] = snippet.get('description', '')
+                            metadata['thumbnail_url'] = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+                            
+                            # Parse ISO 8601 duration
+                            iso_dur = content_details.get('duration', '')
+                            hr_match = re.search(r'(\d+)H', iso_dur, re.IGNORECASE)
+                            min_match = re.search(r'(\d+)M', iso_dur, re.IGNORECASE)
+                            sec_match = re.search(r'(\d+)S', iso_dur, re.IGNORECASE)
+                            
+                            hours = int(hr_match.group(1)) if hr_match else 0
+                            minutes = int(min_match.group(1)) if min_match else 0
+                            seconds = int(sec_match.group(1)) if sec_match else 0
+                            
+                            if hours > 0:
+                                metadata['duration'] = f"{hours}:{minutes:02d}:{seconds:02d}"
+                            else:
+                                metadata['duration'] = f"{minutes}:{seconds:02d}"
+                            
+                            return {
+                                'type': link_type,
+                                'title': title,
+                                'source_name': source_name,
+                                'video_id': video_id,
+                                'duration': metadata.get('duration', '0:00'),
+                                'metadata': metadata
+                            }
+                except Exception as api_err:
+                    print(f"YouTube API failed in backend: {api_err}. Falling back to scraping...")
     elif any(x in domain for x in ['github.com', 'npmjs.com']):
         link_type = 'code'
         if 'github.com' in domain:
