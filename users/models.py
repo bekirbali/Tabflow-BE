@@ -39,6 +39,8 @@ class User(AbstractUser):
     def save(self, *args, **kwargs):
         if not self.api_key:
             self.api_key = secrets.token_hex(24)
+        if not self.username and self.email:
+            self.username = self.email.split('@')[0]
         super().save(*args, **kwargs)
 
     def __str__(self):
