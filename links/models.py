@@ -26,6 +26,7 @@ class Link(models.Model):
     is_clean = models.BooleanField(default=False)
     liked = models.BooleanField(default=False)
     bookmarked = models.BooleanField(default=False)
+    is_private = models.BooleanField(default=False)
     duration = models.CharField(max_length=50, blank=True, null=True)
     metadata = models.JSONField(default=dict, blank=True)
     curator = models.CharField(max_length=100, default='@feed_master')

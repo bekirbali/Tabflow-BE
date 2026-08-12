@@ -50,3 +50,21 @@ class MeView(APIView):
     def get(self, request):
         serializer = UserSerializer(request.user)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class VerifyPasswordView(APIView):
+    """
+    Mevcut oturumu bozmadan sadece şifre doğrular.
+    Gizli sekme unlock işlemi için kullanılır.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        password = request.data.get('password')
+        if not password:
+            return Response({'error': 'Şifre gereklidir.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = authenticate(email=request.user.email, password=password)
+        if user is not None:
+            return Response({'valid': True}, status=status.HTTP_200_OK)
+        return Response({'valid': False}, status=status.HTTP_200_OK)

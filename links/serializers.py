@@ -6,7 +6,7 @@ class LinkSerializer(serializers.ModelSerializer):
         model = Link
         fields = (
             'id', 'url', 'video_id', 'type', 'title', 'source_name',
-            'is_clean', 'liked', 'bookmarked', 'duration', 'metadata',
+            'is_clean', 'liked', 'bookmarked', 'is_private', 'duration', 'metadata',
             'curator', 'category', 'created_at'
         )
         read_only_fields = ('id', 'created_at')
