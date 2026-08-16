@@ -337,6 +337,16 @@ class AddLinkByKeyView(APIView):
             
         final_video_id = video_id or metadata_scraped.get('video_id')
 
+        # Check by video_id first (catches same video via different URL formats)
+        if final_video_id:
+            existing = Link.objects.filter(user=user, video_id=final_video_id).first()
+            if existing:
+                serializer = LinkSerializer(existing)
+                return Response({
+                    "message": "Bu video zaten listenizde mevcut.",
+                    "link": serializer.data
+                }, status=status.HTTP_200_OK)
+
         # Check if already exists for this user by URL
         link, created = Link.objects.get_or_create(
             user=user,
