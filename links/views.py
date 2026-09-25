@@ -200,6 +200,8 @@ def fetch_url_metadata(url):
         'metadata': metadata
     }
 
+from django.utils import timezone
+
 class LinkViewSet(viewsets.ModelViewSet):
     serializer_class = LinkSerializer
     permission_classes = [IsAuthenticated]
@@ -209,6 +211,23 @@ class LinkViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        # Check if is_clean or watched_at are being updated
+        if 'is_clean' in serializer.validated_data:
+            is_clean = serializer.validated_data['is_clean']
+            if is_clean:
+                # If marking as clean/watched and watched_at wasn't explicitly provided, set to now
+                if 'watched_at' not in serializer.validated_data and not instance.watched_at:
+                    serializer.save(watched_at=timezone.now())
+                    return
+            else:
+                # If restoring to inbox, clear watched_at unless explicitly specified
+                if 'watched_at' not in serializer.validated_data:
+                    serializer.save(watched_at=None)
+                    return
+        serializer.save()
 
     @action(detail=False, methods=['post'])
     def sync(self, request):
@@ -233,6 +252,9 @@ class LinkViewSet(viewsets.ModelViewSet):
 
             video_id = data.get('video_id') or data.get('videoId')
             is_clean = data.get('is_clean') or data.get('is_watched') or False
+            watched_at = data.get('watched_at')
+            if is_clean and not watched_at:
+                watched_at = timezone.now()
             link_type = data.get('type', 'general')
             title = data.get('title', 'Unknown Title')
             source_name = data.get('source_name') or data.get('author_name', 'Unknown Source')
@@ -248,6 +270,7 @@ class LinkViewSet(viewsets.ModelViewSet):
                     'title': title,
                     'source_name': source_name,
                     'is_clean': is_clean,
+                    'watched_at': watched_at,
                     'liked': data.get('liked', False),
                     'bookmarked': data.get('bookmarked', False),
                     'duration': data.get('duration', '0:00'),
@@ -262,6 +285,7 @@ class LinkViewSet(viewsets.ModelViewSet):
                 incoming_clean = data.get('is_clean') or data.get('is_watched')
                 if incoming_clean is not None and not link.is_clean and incoming_clean:
                     link.is_clean = True
+                    link.watched_at = incoming_watched_at = data.get('watched_at') or timezone.now()
                     modified = True
                 if data.get('liked') is not None and not link.liked and data.get('liked'):
                     link.liked = True

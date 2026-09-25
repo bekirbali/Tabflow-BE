@@ -31,6 +31,7 @@ class Link(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     curator = models.CharField(max_length=100, default='@feed_master')
     category = models.CharField(max_length=100, default='Tech')
+    watched_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
