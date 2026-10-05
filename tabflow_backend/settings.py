@@ -24,9 +24,14 @@ load_dotenv(BASE_DIR / '.env')
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-bgn6isg0nw^1&g+#9$l_9uv0+o)jq13m*x))&+avtfw85e3x*v')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True') == 'True'
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
+# Safe ALLOWED_HOSTS: fall back to localhost & pythonanywhere if empty
+_allowed_env = os.getenv('ALLOWED_HOSTS')
+if _allowed_env:
+    ALLOWED_HOSTS = [h.strip() for h in _allowed_env.split(',') if h.strip()]
+else:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.pythonanywhere.com', '.vercel.app']
 
 
 # Application definition
@@ -104,8 +109,13 @@ else:
     }
 
 
-# Password validation — tüm kurallar kaldırıldı, istenen her şifre kabul edilir
-AUTH_PASSWORD_VALIDATORS = []
+# Password validation — minimum 6 karakter kuralı aktif
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 6},
+    },
+]
 
 
 
@@ -132,7 +142,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Custom User Model
 AUTH_USER_MODEL = 'users.User'
 
-# REST Framework settings
+# REST Framework settings with Throttling for Brute-Force Protection
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
@@ -140,10 +150,30 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/minute',
+        'user': '180/minute',
+        'auth_attempt': '10/minute',
+    }
 }
 
 # CORS settings
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = [
+    "https://easytabflow.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+]
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https:\/\/.*\.vercel\.app$",
+]
+# Geliştirme ortamında veya açıkça izin verilmişse tüm originlere izin ver
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL', 'False') == 'True' or DEBUG
 CORS_ALLOW_CREDENTIALS = True
 
 # Allow custom X-Api-Key header used by the Chrome extension

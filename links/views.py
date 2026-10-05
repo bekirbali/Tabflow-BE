@@ -9,15 +9,54 @@ from .serializers import LinkSerializer
 import urllib.request
 import re
 import html
+import socket
+import ipaddress
 from urllib.parse import urlparse
 
 User = get_user_model()
+
+def is_safe_public_url(url):
+    """
+    SSRF Protection: Validates that the URL uses HTTP/HTTPS and does not target
+    private IP ranges, loopback addresses, or cloud metadata endpoints.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        hostname = hostname.lower()
+        if hostname in ('localhost', '127.0.0.1', '0.0.0.0', '::1', '169.254.169.254'):
+            return False
+        # Resolve hostname to IP addresses and verify they are globally routable
+        addr_info = socket.getaddrinfo(hostname, None)
+        for family, _, _, _, sockaddr in addr_info:
+            ip_str = sockaddr[0]
+            ip_obj = ipaddress.ip_address(ip_str)
+            if (ip_obj.is_private or ip_obj.is_loopback or 
+                ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_reserved):
+                return False
+        return True
+    except Exception:
+        return False
 
 def fetch_url_metadata(url):
     """
     Scrapes page title, open graph meta tags, determines content type,
     and estimates reading time for articles. Used as a fallback and for API/Extension additions.
     """
+    if not is_safe_public_url(url):
+        return {
+            'type': 'general',
+            'title': 'Güvenlik Nedeniyle Engellenen Bağlantı',
+            'source_name': 'Bilinmeyen Kaynak',
+            'video_id': None,
+            'duration': '0:00',
+            'metadata': {}
+        }
+
     parsed = urlparse(url)
     domain = parsed.netloc.lower()
     
@@ -31,8 +70,8 @@ def fetch_url_metadata(url):
     if any(x in domain for x in ['youtube.com', 'youtu.be', 'vimeo.com']):
         link_type = 'video'
         source_name = 'YouTube' if 'youtube' in domain or 'youtu.be' in domain else 'Vimeo'
-        # Parse YouTube video_id
-        yt_match = re.search(r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})', url)
+        # Parse YouTube video_id (Supports watch, embed, shorts, youtu.be)
+        yt_match = re.search(r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})', url)
         if yt_match:
             video_id = yt_match.group(1)
             
@@ -273,6 +312,7 @@ class LinkViewSet(viewsets.ModelViewSet):
                     'watched_at': watched_at,
                     'liked': data.get('liked', False),
                     'bookmarked': data.get('bookmarked', False),
+                    'is_private': data.get('is_private', False),
                     'duration': data.get('duration', '0:00'),
                     'metadata': metadata,
                     'curator': data.get('curator', '@feed_master'),
@@ -282,6 +322,9 @@ class LinkViewSet(viewsets.ModelViewSet):
             # If it already exists, merge active flags
             if not created:
                 modified = False
+                if data.get('is_private') and not link.is_private:
+                    link.is_private = True
+                    modified = True
                 incoming_clean = data.get('is_clean') or data.get('is_watched')
                 if incoming_clean is not None and not link.is_clean and incoming_clean:
                     link.is_clean = True
@@ -346,8 +389,21 @@ class AddLinkByKeyView(APIView):
         
         # Get details from request body or fall back to scraped info
         link_type = request.data.get('type') or metadata_scraped.get('type') or 'general'
-        title = request.data.get('title') or metadata_scraped.get('title') or 'Unknown Title'
-        source_name = request.data.get('source_name') or request.data.get('author_name') or metadata_scraped.get('source_name') or 'Unknown Source'
+        
+        # Akıllı başlık seçimi: Eğer eklenti veya istemci "YouTube", "YouTube Video" gibi genel başlık yolladıysa
+        # kazınan gerçek YouTube başlığını tercih et!
+        raw_req_title = str(request.data.get('title', '')).strip()
+        if raw_req_title.lower() in ('youtube', 'youtube video', 'youtube videosu', 'unknown title', 'bilinmeyen başlık', ''):
+            title = metadata_scraped.get('title') or raw_req_title or 'Unknown Title'
+        else:
+            title = raw_req_title
+
+        raw_req_source = str(request.data.get('source_name') or request.data.get('author_name', '')).strip()
+        if raw_req_source.lower() in ('youtube', 'unknown source', 'unknown channel', ''):
+            source_name = metadata_scraped.get('source_name') or raw_req_source or 'YouTube'
+        else:
+            source_name = raw_req_source
+
         duration = request.data.get('duration')
         if not duration or duration == '0:00':
             duration = metadata_scraped.get('duration') or '0:00'
@@ -365,9 +421,17 @@ class AddLinkByKeyView(APIView):
         if final_video_id:
             existing = Link.objects.filter(user=user, video_id=final_video_id).first()
             if existing:
+                # Kullanıcı daha önce arşive gönderdiği bir videoyu tekrar ekliyorsa, akışa geri taşınması için aktifleştir!
+                if existing.is_clean:
+                    existing.is_clean = False
+                    existing.watched_at = None
+                    existing.save()
+                    msg = "Bu video arşivinizden çıkarılıp tekrar My Feed akışına taşındı."
+                else:
+                    msg = "Bu video zaten listenizde mevcut."
                 serializer = LinkSerializer(existing)
                 return Response({
-                    "message": "Bu video zaten listenizde mevcut.",
+                    "message": msg,
                     "link": serializer.data
                 }, status=status.HTTP_200_OK)
 

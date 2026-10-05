@@ -95,5 +95,5 @@ class LinksTestCase(TestCase):
         headers = {'HTTP_X_API_KEY': self.user.api_key}
         response = self.client.post(self.key_url, add_data, format='json', **headers)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['video']['title'], 'Rick Astley via API Key')
+        self.assertEqual(response.data['link']['title'], 'Rick Astley via API Key')
         self.assertEqual(Link.objects.filter(user=self.user).count(), 1)
