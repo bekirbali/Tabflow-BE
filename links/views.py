@@ -97,6 +97,8 @@ def fetch_url_metadata(url):
                             source_name = snippet.get('channelTitle', source_name)
                             metadata['description'] = snippet.get('description', '')
                             metadata['thumbnail_url'] = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+                            if snippet.get('publishedAt'):
+                                metadata['publishedAt'] = snippet.get('publishedAt')
                             
                             # Parse ISO 8601 duration
                             iso_dur = content_details.get('duration', '')
@@ -211,6 +213,13 @@ def fetch_url_metadata(url):
                                 metadata['duration'] = f"{minutes}:{seconds:02d}"
                         except ValueError:
                             pass
+
+                # Extract publish date for videos
+                pub_match = re.search(r'itemprop=["\'](?:datePublished|uploadDate)["\']\s+content=["\']([^"\']+)["\']', html_content, re.IGNORECASE) or \
+                            re.search(r'content=["\']([^"\']+)["\']\s+itemprop=["\'](?:datePublished|uploadDate)["\']', html_content, re.IGNORECASE) or \
+                            re.search(r'["\'](?:publishDate|uploadDate)["\']\s*:\s*["\']([^"\']+)["\']', html_content)
+                if pub_match:
+                    metadata['publishedAt'] = pub_match.group(1).strip()
 
             # Estimate read time if article and type is general/article
             if link_type == 'article' or link_type == 'general':
