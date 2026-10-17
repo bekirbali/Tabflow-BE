@@ -123,6 +123,8 @@ def fetch_url_metadata(url):
                                 'duration': metadata.get('duration', '0:00'),
                                 'metadata': metadata
                             }
+                except Exception as api_err:
+                    print(f"YouTube Data API error: {api_err}. Falling back to oEmbed...")
             # Fallback to YouTube oEmbed (Free, no quota, official, returns real video title & author)
             try:
                 import json
