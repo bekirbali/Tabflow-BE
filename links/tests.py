@@ -97,3 +97,43 @@ class LinksTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['link']['title'], 'Rick Astley via API Key')
         self.assertEqual(Link.objects.filter(user=self.user).count(), 1)
+
+    def test_private_feed_network_isolation(self):
+        # 1. Public ve Private iki link oluştur
+        public_link = Link.objects.create(
+            user=self.user,
+            url='https://example.com/public',
+            title='Public Link',
+            is_private=False
+        )
+        private_link = Link.objects.create(
+            user=self.user,
+            url='https://example.com/private',
+            title='Secret Vault Link',
+            is_private=True
+        )
+
+        # 2. Standart GET /api/links/ isteğinde gizli link ASLA dönmemeli
+        resp = self.client.get(self.links_url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]['id'], str(public_link.id))
+
+        # 3. Kasa token'ı olmadan ?include_private=true istense bile gizli link dönmemeli
+        leak_attempt = self.client.get(f'{self.links_url}?include_private=true')
+        self.assertEqual(leak_attempt.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(leak_attempt.data), 1)
+
+        # 4. Şifre doğrulaması yaparak geçerli vault_token al
+        verify_resp = self.client.post('/api/auth/verify-password/', {'password': 'linkpassword123'}, format='json')
+        self.assertEqual(verify_resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(verify_resp.data.get('valid'))
+        vault_token = verify_resp.data.get('vault_token')
+        self.assertTrue(bool(vault_token))
+
+        # 5. Geçerli vault_token ve include_private=true ile iki link de başarıyla dönmeli
+        headers = {'HTTP_X_VAULT_TOKEN': vault_token}
+        authorized_resp = self.client.get(f'{self.links_url}?include_private=true', **headers)
+        self.assertEqual(authorized_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(authorized_resp.data), 2)
+

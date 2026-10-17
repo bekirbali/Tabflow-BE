@@ -57,10 +57,13 @@ class MeView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+from django.core.signing import TimestampSigner
+
 class VerifyPasswordView(APIView):
     """
     Mevcut oturumu bozmadan sadece şifre doğrular.
     Gizli sekme unlock işlemi için kullanılır.
+    Doğrulama başarılı olduğunda 30 dakika geçerli imzalı bir kasa token'ı üretir.
     """
     permission_classes = [IsAuthenticated]
     throttle_classes = [ScopedRateThrottle]
@@ -73,5 +76,11 @@ class VerifyPasswordView(APIView):
 
         user = authenticate(email=request.user.email, password=password)
         if user is not None:
-            return Response({'valid': True}, status=status.HTTP_200_OK)
+            signer = TimestampSigner()
+            vault_token = signer.sign(f"vault:{user.id}")
+            return Response({
+                'valid': True,
+                'vault_token': vault_token
+            }, status=status.HTTP_200_OK)
         return Response({'valid': False}, status=status.HTTP_200_OK)
+

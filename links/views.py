@@ -249,13 +249,38 @@ def fetch_url_metadata(url):
     }
 
 from django.utils import timezone
+from django.core.signing import TimestampSigner, BadSignature, SignatureExpired
 
 class LinkViewSet(viewsets.ModelViewSet):
     serializer_class = LinkSerializer
     permission_classes = [IsAuthenticated]
 
+    def _is_vault_authorized(self):
+        """
+        Kullanıcının geçerli bir kasa token'ı olup olmadığını denetler.
+        """
+        vault_token = (
+            self.request.headers.get('X-Vault-Token') or
+            self.request.query_params.get('vault_token') or
+            (isinstance(self.request.data, dict) and self.request.data.get('vault_token'))
+        )
+        if not vault_token:
+            return False
+        try:
+            val = TimestampSigner().unsign(vault_token, max_age=1800) # 30 dakika geçerlilik
+            return val == f"vault:{self.request.user.id}"
+        except (BadSignature, SignatureExpired):
+            return False
+
     def get_queryset(self):
-        return Link.objects.filter(user=self.request.user)
+        queryset = Link.objects.filter(user=self.request.user)
+        include_private = self.request.query_params.get('include_private', 'false').lower() in ('true', '1')
+
+        # Gizli linkler sadece kasa token'ı geçerli VE include_private=true olduğunda getirilir
+        if not (include_private and self._is_vault_authorized()):
+            if self.action in ['list', 'sync', 'retrieve']:
+                queryset = queryset.filter(is_private=False)
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
