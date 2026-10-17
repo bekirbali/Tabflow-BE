@@ -137,3 +137,40 @@ class LinksTestCase(TestCase):
         self.assertEqual(authorized_resp.status_code, status.HTTP_200_OK)
         self.assertEqual(len(authorized_resp.data), 2)
 
+    def test_links_stats_and_tab_filtering(self):
+        # 1. Farklı durumlarda linkler oluştur
+        Link.objects.create(user=self.user, url='https://example.com/inbox1', title='Inbox 1', is_clean=False)
+        Link.objects.create(user=self.user, url='https://example.com/inbox2', title='Inbox 2', is_clean=False, liked=True)
+        Link.objects.create(user=self.user, url='https://example.com/archived1', title='Archived 1', is_clean=True, bookmarked=True)
+        Link.objects.create(user=self.user, url='https://example.com/archived2', title='Archived 2', is_clean=True, liked=True)
+
+        # 2. Stats endpoint'ini çağır
+        stats_resp = self.client.get(f'{self.links_url}stats/')
+        self.assertEqual(stats_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(stats_resp.data['inbox'], 2)
+        self.assertEqual(stats_resp.data['archive'], 2)
+        self.assertEqual(stats_resp.data['liked'], 2)
+        self.assertEqual(stats_resp.data['saved'], 1)
+
+        # 3. Tab bazlı filtreleri test et
+        feed_resp = self.client.get(f'{self.links_url}?tab=feed')
+        self.assertEqual(feed_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(feed_resp.data), 2)
+        self.assertTrue(all(not x['is_clean'] for x in feed_resp.data))
+
+        archive_resp = self.client.get(f'{self.links_url}?tab=archive')
+        self.assertEqual(archive_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(archive_resp.data), 2)
+        self.assertTrue(all(x['is_clean'] for x in archive_resp.data))
+
+        liked_resp = self.client.get(f'{self.links_url}?tab=liked')
+        self.assertEqual(liked_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(liked_resp.data), 2)
+        self.assertTrue(all(x['liked'] for x in liked_resp.data))
+
+        saved_resp = self.client.get(f'{self.links_url}?tab=saved')
+        self.assertEqual(saved_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(saved_resp.data), 1)
+        self.assertTrue(all(x['bookmarked'] for x in saved_resp.data))
+
+

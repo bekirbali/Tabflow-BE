@@ -123,8 +123,24 @@ def fetch_url_metadata(url):
                                 'duration': metadata.get('duration', '0:00'),
                                 'metadata': metadata
                             }
-                except Exception as api_err:
-                    print(f"YouTube API failed in backend: {api_err}. Falling back to scraping...")
+            # Fallback to YouTube oEmbed (Free, no quota, official, returns real video title & author)
+            try:
+                import json
+                oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+                oembed_req = urllib.request.Request(
+                    oembed_url,
+                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                )
+                with urllib.request.urlopen(oembed_req, timeout=3) as oembed_resp:
+                    oembed_data = json.loads(oembed_resp.read().decode('utf-8'))
+                    if oembed_data.get('title'):
+                        title = oembed_data['title']
+                    if oembed_data.get('author_name'):
+                        source_name = oembed_data['author_name']
+                    if oembed_data.get('thumbnail_url'):
+                        metadata['thumbnail_url'] = oembed_data['thumbnail_url']
+            except Exception as oembed_err:
+                print(f"YouTube oEmbed failed in backend: {oembed_err}. Falling back to scraping...")
     elif any(x in domain for x in ['github.com', 'npmjs.com']):
         link_type = 'code'
         if 'github.com' in domain:
@@ -154,11 +170,16 @@ def fetch_url_metadata(url):
         with urllib.request.urlopen(req, timeout=3) as response:
             html_content = response.read().decode('utf-8', errors='ignore')
             
-            # Extract title
+            # Extract title if not already populated from API/oEmbed
             title_match = re.search(r'<title[^>]*>([\s\S]*?)<\/title>', html_content, re.IGNORECASE)
             if title_match:
-                extracted_title = title_match.group(1).strip()
-                title = html.unescape(extracted_title)
+                extracted_title = html.unescape(title_match.group(1).strip())
+                cleaned_title = re.sub(r'\s*-\s*YouTube\s*$', '', extracted_title, flags=re.IGNORECASE).strip()
+                # Generic "YouTube" başlığının gerçek başlığı ezmesini engelle
+                if cleaned_title and cleaned_title.lower() not in ('youtube', 'youtube video', ''):
+                    title = cleaned_title
+                elif not title or title.lower() in ('bilinmeyen başlık', 'unknown title', 'youtube', ''):
+                    title = cleaned_title or extracted_title
             
             # Extract og:site_name
             site_name_match = re.search(r'<meta[^>]+property=["\']og:site_name["\'][^>]+content=["\']([^"\']+)["\']', html_content, re.IGNORECASE) or \
@@ -277,10 +298,56 @@ class LinkViewSet(viewsets.ModelViewSet):
         include_private = self.request.query_params.get('include_private', 'false').lower() in ('true', '1')
 
         # Gizli linkler sadece kasa token'ı geçerli VE include_private=true olduğunda getirilir
-        if not (include_private and self._is_vault_authorized()):
+        is_vault_auth = self._is_vault_authorized()
+        if not (include_private and is_vault_auth):
             if self.action in ['list', 'sync', 'retrieve']:
                 queryset = queryset.filter(is_private=False)
+
+        # Sekme bazlı tembel yükleme (Lazy Loading)
+        tab = self.request.query_params.get('tab', '').strip().lower()
+        if self.action == 'list' and tab:
+            if tab == 'feed':
+                queryset = queryset.filter(is_clean=False)
+            elif tab in ('archive', 'watched'):
+                queryset = queryset.filter(is_clean=True)
+            elif tab == 'liked':
+                queryset = queryset.filter(liked=True)
+            elif tab == 'saved':
+                queryset = queryset.filter(bookmarked=True)
+            elif tab == 'private':
+                if is_vault_auth:
+                    queryset = queryset.filter(is_private=True)
+                else:
+                    queryset = queryset.none()
+
         return queryset
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """
+        Kullanıcının sekmeler bazındaki sayılarını tek ve çok hafif bir sorguyla döner.
+        Tüm link objelerini indirmek yerine DB seviyesinde COUNT yapar.
+        """
+        qs = Link.objects.filter(user=request.user)
+        is_vault_auth = self._is_vault_authorized()
+
+        # Genel sekmeler için gizli olmayanları say
+        public_qs = qs.filter(is_private=False)
+
+        inbox_count = public_qs.filter(is_clean=False).count()
+        archive_count = public_qs.filter(is_clean=True).count()
+        liked_count = public_qs.filter(liked=True).count()
+        saved_count = public_qs.filter(bookmarked=True).count()
+
+        private_count = qs.filter(is_private=True).count() if is_vault_auth else 0
+
+        return Response({
+            'inbox': inbox_count,
+            'archive': archive_count,
+            'liked': liked_count,
+            'saved': saved_count,
+            'private': private_count
+        }, status=status.HTTP_200_OK)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
