@@ -176,7 +176,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL', 'False') == 'True' or DEBUG
 CORS_ALLOW_CREDENTIALS = True
 
-# Allow custom X-Api-Key header used by the Chrome extension
+# Allow custom headers used by the Chrome extension and secret vault
 CORS_ALLOW_HEADERS = [
     "accept",
     "authorization",
@@ -185,4 +185,5 @@ CORS_ALLOW_HEADERS = [
     "x-csrftoken",
     "x-requested-with",
     "x-api-key",  # TabFlow Chrome extension API key header
+    "x-vault-token",  # TabFlow Vault (gizli akış) token header
 ]
