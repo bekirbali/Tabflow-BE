@@ -245,6 +245,23 @@ class LinksTestCase(TestCase):
         self.assertEqual(len(res_vid.data), 1)
         self.assertEqual(res_vid.data[0]['title'], 'Django REST Framework Mastery')
 
+        # 5. Unicode / Turkish case-insensitive search
+        Link.objects.create(
+            user=self.user,
+            url='https://www.youtube.com/watch?v=gokhan_1234',
+            video_id='gokhan_1234',
+            title='Gökhan Öner ile Yazılım Sohbetleri',
+            source_name='Gökhan Öner'
+        )
+        res_turkish_lower = self.client.get(f'{self.links_url}?q=gökhan öner&search_all=true')
+        self.assertEqual(res_turkish_lower.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_turkish_lower.data), 1)
+        self.assertEqual(res_turkish_lower.data[0]['video_id'], 'gokhan_1234')
+
+        res_turkish_upper = self.client.get(f'{self.links_url}?q=GÖKHAN ÖNER&search_all=true')
+        self.assertEqual(res_turkish_upper.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_turkish_upper.data), 1)
+
 
 
 

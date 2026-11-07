@@ -329,14 +329,16 @@ class LinkViewSet(viewsets.ModelViewSet):
                     queryset = queryset.none()
 
         # Geçmişe dönük arama filtresi (başlık, kanal/kaynak adı, URL veya YouTube video ID)
+        # SQLite üzerinde Türkçe ve Unicode karakterlerde tam case-insensitive arama için iregex kullanılır
         if self.action == 'list' and search_query:
             yt_match = re.search(r'(?:v=|\/videos\/|embed\/|youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})', search_query)
             extracted_vid = yt_match.group(1) if yt_match else (search_query if len(search_query) == 11 and re.match(r'^[a-zA-Z0-9_-]{11}$', search_query) else None)
 
+            escaped_query = re.escape(search_query)
             q_filter = (
-                Q(title__icontains=search_query) |
-                Q(source_name__icontains=search_query) |
-                Q(url__icontains=search_query)
+                Q(title__iregex=escaped_query) |
+                Q(source_name__iregex=escaped_query) |
+                Q(url__iregex=escaped_query)
             )
             if extracted_vid:
                 q_filter |= Q(video_id=extracted_vid)
