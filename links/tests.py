@@ -173,4 +173,40 @@ class LinksTestCase(TestCase):
         self.assertEqual(len(saved_resp.data), 1)
         self.assertTrue(all(x['bookmarked'] for x in saved_resp.data))
 
+    def test_idor_user_isolation(self):
+        # Create second user
+        other_user = User.objects.create_user(
+            email='other@tabflow.dev',
+            password='OtherUserPass123!'
+        )
+        other_link = Link.objects.create(
+            user=other_user,
+            url='https://example.com/other-secret',
+            title='Other User Link'
+        )
+
+        # Primary user cannot see other user's link
+        list_resp = self.client.get(self.links_url)
+        self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
+        returned_ids = [item['id'] for item in list_resp.data]
+        self.assertNotIn(str(other_link.id), returned_ids)
+
+        # Primary user cannot patch other user's link
+        patch_resp = self.client.patch(f'{self.links_url}{other_link.id}/', {'title': 'Hacked Title'}, format='json')
+        self.assertEqual(patch_resp.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Primary user cannot delete other user's link
+        delete_resp = self.client.delete(f'{self.links_url}{other_link.id}/')
+        self.assertEqual(delete_resp.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Link.objects.filter(id=other_link.id).exists())
+
+    def test_invalid_link_creation_fails(self):
+        # Missing required URL
+        invalid_data = {
+            'title': 'No URL provided'
+        }
+        resp = self.client.post(self.links_url, invalid_data, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 
