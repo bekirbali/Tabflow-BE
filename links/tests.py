@@ -208,5 +208,43 @@ class LinksTestCase(TestCase):
         resp = self.client.post(self.links_url, invalid_data, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_links_search(self):
+        # 1. Create test links across different states
+        Link.objects.create(
+            user=self.user,
+            url='https://www.youtube.com/watch?v=react_12345',
+            video_id='react_12345',
+            title='React Server Components Deep Dive',
+            source_name='Tech Talk Channel',
+            is_clean=False
+        )
+        Link.objects.create(
+            user=self.user,
+            url='https://www.youtube.com/watch?v=python_6789',
+            video_id='python_6789',
+            title='Django REST Framework Mastery',
+            source_name='Python Pro',
+            is_clean=True  # In archive
+        )
+
+        # 2. Search by title
+        res = self.client.get(f'{self.links_url}?q=React')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]['video_id'], 'react_12345')
+
+        # 3. Global search across archive with search_all=true
+        res_archive = self.client.get(f'{self.links_url}?q=Django&search_all=true')
+        self.assertEqual(res_archive.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_archive.data), 1)
+        self.assertEqual(res_archive.data[0]['video_id'], 'python_6789')
+
+        # 4. Search by video_id directly
+        res_vid = self.client.get(f'{self.links_url}?q=python_6789&search_all=true')
+        self.assertEqual(res_vid.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_vid.data), 1)
+        self.assertEqual(res_vid.data[0]['title'], 'Django REST Framework Mastery')
+
+
 
 

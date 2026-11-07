@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from .models import Link
 from .serializers import LinkSerializer
 import urllib.request
@@ -305,9 +306,14 @@ class LinkViewSet(viewsets.ModelViewSet):
             if self.action in ['list', 'sync', 'retrieve']:
                 queryset = queryset.filter(is_private=False)
 
-        # Sekme bazlı tembel yükleme (Lazy Loading)
+        # Sekme ve arama parametreleri
         tab = self.request.query_params.get('tab', '').strip().lower()
-        if self.action == 'list' and tab:
+        search_query = (self.request.query_params.get('q') or self.request.query_params.get('search') or '').strip()
+        search_all = self.request.query_params.get('search_all', 'false').lower() in ('true', '1')
+
+        # Sekme bazlı tembel yükleme (Lazy Loading)
+        # Global arama yapılıyorsa (search_query ve search_all=true ya da tab='all' veya tab belirtilmemişse) sekme kısıtı uygulanmaz
+        if self.action == 'list' and tab and not (search_query and (search_all or tab == 'all')):
             if tab == 'feed':
                 queryset = queryset.filter(is_clean=False)
             elif tab in ('archive', 'watched'):
@@ -321,6 +327,21 @@ class LinkViewSet(viewsets.ModelViewSet):
                     queryset = queryset.filter(is_private=True)
                 else:
                     queryset = queryset.none()
+
+        # Geçmişe dönük arama filtresi (başlık, kanal/kaynak adı, URL veya YouTube video ID)
+        if self.action == 'list' and search_query:
+            yt_match = re.search(r'(?:v=|\/videos\/|embed\/|youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})', search_query)
+            extracted_vid = yt_match.group(1) if yt_match else (search_query if len(search_query) == 11 and re.match(r'^[a-zA-Z0-9_-]{11}$', search_query) else None)
+
+            q_filter = (
+                Q(title__icontains=search_query) |
+                Q(source_name__icontains=search_query) |
+                Q(url__icontains=search_query)
+            )
+            if extracted_vid:
+                q_filter |= Q(video_id=extracted_vid)
+
+            queryset = queryset.filter(q_filter)
 
         return queryset
 
